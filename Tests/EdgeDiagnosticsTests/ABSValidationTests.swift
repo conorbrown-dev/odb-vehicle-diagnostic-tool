@@ -28,6 +28,32 @@ final class ABSValidationTests: XCTestCase {
         XCTAssertTrue(transport.commands.contains("STCFCPA 760, 768"))
     }
 
+    func testATE0EchoedAcknowledgementContinuesValidation() {
+        let transport = ValidationTransport()
+        transport.echoATE0 = true
+        let session = run(transport)
+        XCTAssertEqual(session.outcome, .responded)
+        XCTAssertTrue(transport.commands.contains("1902FF"))
+        XCTAssertTrue(session.adapterExchanges.contains { $0.command == "ATE0" && $0.response == "ATE0\rOK\r\r" })
+    }
+
+    func testAdapterCommandResponseNormalization() {
+        for raw in ["ATE0\rOK\r", "ATE0\r\rOK\r\r", "ATE0\rOK\r>", "OK\r", "\rOK\r\r", "ATE0\nOK\n"] {
+            XCTAssertTrue(AdapterCommandResponse.acknowledges(command: "ATE0", raw: raw), raw)
+        }
+        XCTAssertFalse(AdapterCommandResponse.acknowledges(command: "ATE0", raw: "ERROR\r"))
+        XCTAssertFalse(AdapterCommandResponse.acknowledges(command: "ATE0", raw: "?\r"))
+    }
+
+    func testImplausiblyLowVoltageBlocksBeforeABSRequest() {
+        let transport = ValidationTransport()
+        transport.voltageResponse = "7.7V"
+        let session = run(transport)
+        XCTAssertEqual(session.outcome, .preflightBlocked)
+        XCTAssertFalse(transport.commands.contains("1902FF"))
+        XCTAssertEqual(session.adapterVoltage, 7.7)
+    }
+
     func testTXPayloadAndLogicalCANFrameAreLoggedWithDIDAndSubfunction() {
         let session = run(ValidationTransport(), identification: true)
         let tx = session.transcript.filter { $0.direction == "TX" && $0.visibility == .logical }
@@ -106,7 +132,7 @@ final class ABSValidationTests: XCTestCase {
             XCTAssertEqual(session.outcome, .negativeResponse)
             XCTAssertEqual(session.dtcResult.status, .negative)
             XCTAssertEqual(session.dtcResult.nrc, UInt8(nrc))
-            XCTAssertEqual(session.addressing.status, .candidate)
+            XCTAssertEqual(session.addressing.status, .observed)
             XCTAssertTrue(session.transcript.contains { $0.service == 0x19 && $0.nrc == UInt8(nrc) && $0.positiveResponse == false })
             XCTAssertEqual(transport.commands.last, "1902FF")
         }
@@ -307,6 +333,7 @@ private final class ValidationTransport: OBDTransport, @unchecked Sendable {
     var timeoutCommand: String?
     var partial = ""
     var failCommand: String?
+    var echoATE0 = false
     func open() throws { opened = true }
     func close() { closed = true }
     func transact(_ command: String, timeout: TimeInterval) throws -> String {
@@ -314,6 +341,7 @@ private final class ValidationTransport: OBDTransport, @unchecked Sendable {
         if command == timeoutCommand { throw OBDTransportFailure(timedOut: true, partialResponse: partial, message: "Timed out waiting for \(command)") }
         if command == failCommand { return "?" }
         switch command {
+        case "ATE0" where echoATE0: return "ATE0\rOK\r\r"
         case "ATZ", "ATI": return "ELM327 v1.4b"
         case "STDI": return deviceIdentity
         case "ATRV": return voltageResponse
