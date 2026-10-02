@@ -203,7 +203,7 @@ final class OBDClient: @unchecked Sendable {
 
     private func absAdapterCommand(_ command: String) throws {
         let response = try send(command, timeout: 3)
-        guard response.replacingOccurrences(of: ">", with: "").trimmingCharacters(in: .whitespacesAndNewlines) == "OK" else {
+        guard ELMResponse(command: command, raw: response).isAcknowledged else {
             throw ABSValidationFailure(outcome: .adapterFailure, message: "Adapter did not acknowledge \(command): \(response)")
         }
     }
@@ -427,10 +427,13 @@ final class OBDClient: @unchecked Sendable {
         transcriptLock.lock()
         transcript.append(DiagnosticTranscriptEntry(timestamp: Date(), command: command, response: response))
         transcriptLock.unlock()
-        if interpretAdapterErrors && (response.uppercased().contains("ERROR") || response.uppercased().contains("UNABLE") || response.trimmingCharacters(in: .whitespacesAndNewlines) == "?") {
+        let parsed = ELMResponse(command: command, raw: response)
+        if interpretAdapterErrors && parsed.hasError {
             throw OBDClientError.adapter(response)
         }
-        return response
+        // Keep diagnostic/CAN output unchanged. Only adapter textual envelopes are
+        // normalized for consumers, after both transcript stores retain the raw reply.
+        return command.hasPrefix("AT") || command.hasPrefix("ST") ? parsed.normalized : response
     }
 
     private func sendAdapterQuery(_ command: String) throws -> String { try send(command) }

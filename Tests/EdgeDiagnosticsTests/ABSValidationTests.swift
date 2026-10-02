@@ -314,6 +314,7 @@ private final class ValidationTransport: OBDTransport, @unchecked Sendable {
         if command == timeoutCommand { throw OBDTransportFailure(timedOut: true, partialResponse: partial, message: "Timed out waiting for \(command)") }
         if command == failCommand { return "?" }
         switch command {
+        case "ATE0": return "ATE0\rOK\r\r"
         case "ATZ", "ATI": return "ELM327 v1.4b"
         case "STDI": return deviceIdentity
         case "ATRV": return voltageResponse
