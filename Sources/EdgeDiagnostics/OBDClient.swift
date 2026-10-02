@@ -6,6 +6,30 @@ protocol OBDTransport: Sendable {
     func transact(_ command: String, timeout: TimeInterval) throws -> String
 }
 
+/// ELM/STN adapters may echo the command that changes echo state. Keep the raw
+/// transport response intact for tracing, but normalize meaningful response lines
+/// before deciding whether an adapter configuration command was acknowledged.
+enum AdapterCommandResponse {
+    static func meaningfulLines(command: String, raw: String) -> [String] {
+        var lines = raw
+            .replacingOccurrences(of: ">", with: "\n")
+            .split(whereSeparator: { $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if let first = lines.first,
+           first.caseInsensitiveCompare(command.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+            lines.removeFirst()
+        }
+        return lines
+    }
+
+    static func acknowledges(command: String, raw: String) -> Bool {
+        meaningfulLines(command: command, raw: raw)
+            .contains { $0.caseInsensitiveCompare("OK") == .orderedSame }
+    }
+}
+
 final class OBDClient: @unchecked Sendable {
     private let operationLock = NSRecursiveLock()
     private var absTrace: [ABSTrace] = []
@@ -203,7 +227,7 @@ final class OBDClient: @unchecked Sendable {
 
     private func absAdapterCommand(_ command: String) throws {
         let response = try send(command, timeout: 3)
-        guard response.replacingOccurrences(of: ">", with: "").trimmingCharacters(in: .whitespacesAndNewlines) == "OK" else {
+        guard AdapterCommandResponse.acknowledges(command: command, raw: response) else {
             throw ABSValidationFailure(outcome: .adapterFailure, message: "Adapter did not acknowledge \(command): \(response)")
         }
     }
@@ -227,7 +251,7 @@ final class OBDClient: @unchecked Sendable {
     }
 
     private func absRequest(_ bytes: [UInt8], profile: FordModuleAddressing) throws -> [UInt8] {
-        guard bytes == [0x19, 0x02, 0xFF] || bytes == [0x22, 0xF1, 0x87], absSession?.preflight.readOnly == true else {
+        guard bytes == [0x18, 0x00, 0xFF, 0x00] || bytes == [0x19, 0x02, 0xFF] || bytes == [0x22, 0xF1, 0x87], absSession?.preflight.readOnly == true else {
             throw OBDClientError.unsafeCommand(bytes.hex)
         }
         let identification = bytes.first == 0x22
@@ -277,6 +301,13 @@ final class OBDClient: @unchecked Sendable {
         do { _ = try DiagnosticResponse.validate(payload, request: bytes) }
         catch {
             if case OBDClientError.negativeResponse(_, let nrc) = error {
+                // A syntactically valid negative response from the configured response
+                // ID proves that this request/response address pair reaches an ECU,
+                // even though the requested service itself was rejected.
+                absSession!.addressing.markObserved(at: Date())
+                absTrace.append(.init(timestamp: Date(), direction: "RX", canID: profile.responseID, rawCAN: nil, payload: nil,
+                                      detail: "Address pair observed in this session from a valid negative diagnostic response. Service support and programming compatibility are separate questions.",
+                                      visibility: .logical, frameType: .validation))
                 result.status = .negative; result.nrc = nrc
                 if identification { absSession!.f187Result = result } else { absSession!.dtcResult = result }
                 throw ABSValidationFailure(outcome: .negativeResponse, message: error.localizedDescription)
@@ -318,7 +349,10 @@ final class OBDClient: @unchecked Sendable {
     private func performABSRead(profile: FordModuleAddressing, readIdentification: Bool) throws {
         try configureABS(profile)
         // The communication test is the DTC read itself; no redundant/undocumented probe.
-        let payload = try absRequest([0x19, 0x02, 0xFF], profile: profile)
+        // This generation of Ford CAN diagnostics uses the KWP2000-style
+        // readDiagnosticTroubleCodesByStatus service rather than UDS 0x19.
+        // The vehicle itself returned 7F 19 11 to the UDS probe at 0x760/0x768.
+        let payload = try absRequest([0x18, 0x00, 0xFF, 0x00], profile: profile)
         absSession!.dtcs = try FordABSService.decodeDTCs(payload)
         if readIdentification {
             let value = Array(try absRequest([0x22, 0xF1, 0x87], profile: profile).dropFirst(3))
@@ -374,6 +408,12 @@ final class OBDClient: @unchecked Sendable {
             guard device.uppercased().contains("OBDLINK EX") else { throw ABSValidationFailure(outcome: .adapterFailure, message: "STDI did not identify an OBDLink EX: \(device)") }
             let voltageText = try send("ATRV", timeout: 3)
             absSession!.adapterVoltage = Double(voltageText.replacingOccurrences(of: "V", with: "").trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+            if let voltage = absSession!.adapterVoltage, voltage < 10.0 || voltage > 16.0 {
+                throw ABSValidationFailure(
+                    outcome: .preflightBlocked,
+                    message: String(format: "ABS validation stopped: adapter reports %.1f V. The 2012 Fusion ABS module operating range is 10-16 V; stabilize the vehicle supply and verify voltage before continuing.", voltage)
+                )
+            }
             absTrace.append(.init(timestamp: Date(), direction: "TX", canID: 0x7DF, rawCAN: [2, 1, 0x0C], payload: [1, 0x0C],
                                   detail: "Logical generic OBD Mode 01 PID 0C RPM request. CAF1 supplies PCI/padding; no physical TX capture. Response headers are off for this existing generic query.", visibility: .logical, frameType: .singleFrame, service: 1))
             let rpmText = try send("010C", timeout: 5)
