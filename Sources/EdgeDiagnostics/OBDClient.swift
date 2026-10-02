@@ -25,8 +25,24 @@ enum AdapterCommandResponse {
     }
 
     static func acknowledges(command: String, raw: String) -> Bool {
-        meaningfulLines(command: command, raw: raw)
-            .contains { $0.caseInsensitiveCompare("OK") == .orderedSame }
+        let lines = meaningfulLines(command: command, raw: raw)
+        return !containsError(lines) && lines.contains { $0.caseInsensitiveCompare("OK") == .orderedSame }
+    }
+
+    static func containsError(_ lines: [String]) -> Bool {
+        lines.contains {
+            let line = $0.uppercased()
+            return line == "?" || line.contains("ERROR") || line.contains("UNABLE") || line == "STOPPED" || line == "BUFFER FULL" || line == "BUS BUSY" || line == "FB ERROR"
+        }
+    }
+
+    static func voltage(_ text: String) -> Double? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard text.hasSuffix("V") else { return nil }
+        let number = text.dropLast()
+        guard !number.isEmpty, number.allSatisfy({ "0123456789.".contains($0) }),
+              let value = Double(number), value.isFinite else { return nil }
+        return value
     }
 }
 
@@ -70,7 +86,7 @@ final class OBDClient: @unchecked Sendable {
 
     func voltage() throws -> Double? {
         let response = try sendAdapterQuery("ATRV")
-        return Double(response.replacingOccurrences(of: "V", with: "").trimmingCharacters(in: .whitespacesAndNewlines))
+        return AdapterCommandResponse.voltage(response)
     }
 
     /// Standard OBD-II Mode 09/PID 02. This requests identification data only.
@@ -399,16 +415,19 @@ final class OBDClient: @unchecked Sendable {
             try transport.open()
             _ = try send("ATZ", timeout: 10) // Adapter reset only; never an ECU reset/session control.
             for command in ["ATE0", "ATL0", "ATS0", "ATH0", "ATSP6", "ATAT2", "STP 33", "STCAF 0", "ATCAF1", "ATCFC1", "ATCRA", "STCFCPC", "ATAR", "ATSH7DF"] { try absAdapterCommand(command) }
-            let elm = try send("ATI", timeout: 3)
-            let device = try send("STDI", timeout: 3).trimmingCharacters(in: .whitespacesAndNewlines)
+            let elm = try sendAdapterQuery("ATI")
+            let device = try sendAdapterQuery("STDI").trimmingCharacters(in: .whitespacesAndNewlines)
             absSession!.adapterInformation = device + " • " + elm.trimmingCharacters(in: .whitespacesAndNewlines)
             guard device.uppercased().contains("OBDLINK EX") else { throw ABSValidationFailure(outcome: .adapterFailure, message: "STDI did not identify an OBDLink EX: \(device)") }
-            let voltageText = try send("ATRV", timeout: 3)
-            absSession!.adapterVoltage = Double(voltageText.replacingOccurrences(of: "V", with: "").trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
-            if let voltage = absSession!.adapterVoltage, voltage < 10.0 || voltage > 16.0 {
+            let voltageText = try sendAdapterQuery("ATRV")
+            absSession!.adapterVoltage = AdapterCommandResponse.voltage(voltageText)
+            guard let voltage = absSession!.adapterVoltage else {
+                throw ABSValidationFailure(outcome: .preflightBlocked, message: "ABS validation stopped: adapter voltage is unavailable or invalid. Verify vehicle voltage externally before continuing.")
+            }
+            if voltage < 10.0 || voltage > 16.0 {
                 throw ABSValidationFailure(
                     outcome: .preflightBlocked,
-                    message: String(format: "ABS validation stopped: adapter reports %.1f V. The 2012 Fusion ABS module operating range is 10-16 V; stabilize the vehicle supply and verify voltage before continuing.", voltage)
+                    message: String(format: "ABS validation stopped: adapter reports %.1f V. The app requires 10-16 V for this read-only preflight; verify vehicle voltage externally before continuing. This software guard is not a verified module operating specification.", voltage)
                 )
             }
             absTrace.append(.init(timestamp: Date(), direction: "TX", canID: 0x7DF, rawCAN: [2, 1, 0x0C], payload: [1, 0x0C],
@@ -464,13 +483,16 @@ final class OBDClient: @unchecked Sendable {
         transcriptLock.lock()
         transcript.append(DiagnosticTranscriptEntry(timestamp: Date(), command: command, response: response))
         transcriptLock.unlock()
-        if interpretAdapterErrors && (response.uppercased().contains("ERROR") || response.uppercased().contains("UNABLE") || response.trimmingCharacters(in: .whitespacesAndNewlines) == "?") {
+        if interpretAdapterErrors && AdapterCommandResponse.containsError(AdapterCommandResponse.meaningfulLines(command: command, raw: response)) {
             throw OBDClientError.adapter(response)
         }
         return response
     }
 
-    private func sendAdapterQuery(_ command: String) throws -> String { try send(command) }
+    private func sendAdapterQuery(_ command: String) throws -> String {
+        let raw = try send(command, timeout: 3)
+        return AdapterCommandResponse.meaningfulLines(command: command, raw: raw).joined(separator: "\n")
+    }
 
     private func optionalValue(mode: String, pid: String) throws -> [Int]? {
         do { return try value(mode: mode, pid: pid) }

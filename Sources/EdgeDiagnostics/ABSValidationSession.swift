@@ -64,7 +64,7 @@ struct ABSValidationSession: Codable, Equatable, Identifiable {
     var transcript: [ABSTrace] = []
     var adapterExchanges: [DiagnosticTranscriptEntry] = []
     var requiresReconnect = false
-    var absResponded: Bool { addressing.status == .observed && dtcResult.status == .positive }
+    var absResponded: Bool { addressing.status == .observed && [.positive, .negative].contains(dtcResult.status) }
 
     static func jsonEncoder() -> JSONEncoder {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

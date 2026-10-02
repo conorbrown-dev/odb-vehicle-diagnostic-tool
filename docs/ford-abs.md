@@ -2,7 +2,7 @@
 
 This is an incremental read-only implementation for investigating an ABS/HCU replacement on a 2012 Fusion SEL 2.5L FWD. No live vehicle validation has been performed. It does not configure a replacement module or determine compatibility.
 
-See [Validate Original ABS Module](ford-abs-validation.md) for the current in-car workflow and session export. The configurable `760/768` HS-CAN profile is explicitly a user-supplied candidate until a valid matching positive response is observed in that session. No live hardware validation has occurred.
+See [Validate Original ABS Module](ford-abs-validation.md) for the current in-car workflow and session export. The configurable `760/768` HS-CAN profile is explicitly a user-supplied candidate until a valid matching positive or negative diagnostic response is observed in that session. The user reports a real 760/768 negative reply; see the research ledger for provenance.
 
 ## Existing project review and architecture
 
@@ -29,7 +29,7 @@ The original code mislabeled F187 as a software number. The ABS model now stores
 
 The app remains permanently READ ONLY. There is no mode toggle that unlocks vehicle-changing commands.
 
-- Validate the original ABS module using the candidate 760/768 profile or a user-configured 11-bit pair. No address scanning. A valid matching positive response records an observation in that session and backup.
+- Validate the original ABS module using the candidate 760/768 profile or a user-configured 11-bit pair. No address scanning. A valid matching positive or negative diagnostic response records an observation in that session and backup.
 - Request DTC records with `19 02 FF`. A valid empty `59 02` response establishes communication independently of DTC count. Preserve all three DTC bytes and status; descriptions are existing catalog hints, not factory ABS definitions.
 - Optionally request manufacturer spare-part number with `22 F187`, already present in the project. VIN, software number, hardware, strategy and other unavailable identifiers display as unavailable.
 - Read adapter voltage with `ATRV`; this is an approximate adapter supply measurement, not battery health or an engine-state determination.

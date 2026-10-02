@@ -1,38 +1,31 @@
-# Ford ABS protocol findings
+# Ford ABS protocol evidence ledger
 
-Target: 2012 Ford Fusion SEL, 2.5L, FWD; compatible used Ford/ATE ABS/HCU replacement. **No vehicle captures or Ford service procedure have been supplied. Nothing below is verified on that target vehicle.** Synthetic test fixtures are not evidence of vehicle support.
+Updated 2026-10-02. Target: 2012 Ford Fusion SEL 2.5L FWD, original Ford/ATE BE5C-2C219-AA installed; replacement label AE5C-2C219-FE. Label differences establish no compatibility verdict.
 
-| Operation | Request | Expected response / finding | Verified on target | Source / notes |
-| --- | --- | --- | --- | --- |
-| Candidate addressing | Candidate HS-CAN `760/768`, normal 11-bit; both IDs configurable | Valid matching positive read response records session observation | No | Request inherited from `FordModuleProbe.absCandidate`; response candidate explicitly supplied by user in follow-up. Candidate profile is not car-verified. `observedAt` is recorded only after a matching valid positive response in an actual session. No hardware captures supplied. |
-| Identify module (spare-part number only) | `22 F1 87`, optional | `62 F1 87 <data>` | No | Existing `OBDClient.udsText` request reused. Its old software-number label was incorrect; [udsoncan DID definitions](https://udsoncan.readthedocs.io/en/latest/_modules/udsoncan/common/dids.html) map F187 to manufacturer spare-part number. Support/session availability unknown. |
-| Software/hardware/strategy identification | Unknown | Unknown | No | No additional DIDs probed or invented. |
-| Read VIN from ABS | Unknown for target | Unknown | No | Generic OBD `09 02` remains powertrain vehicle identification, never substituted for ABS VIN. |
-| Read DTCs | `19 02 FF` | `59 02 <availability mask> <3-byte DTC + status>...` | No | Existing project UDS read, now strictly parsed in dedicated ABS path. Empty positive response establishes communication; NO DATA/timeout does not mean zero DTCs. Third-byte interpretation unverified. |
-| Clear DTCs | Ford sequence unknown | Unknown | No | UDS clear service existence alone does not verify the correct group/session/procedure. No request implemented. |
-| Read As-Built | Unknown | Unknown | No | No ABS addresses, DID mapping or checksum algorithm supplied. Manual block-format import only. |
-| Write As-Built | Unknown | Unknown | No | Disabled; sessions/security/write/checksum/compatibility/readback procedures all required. |
-| ECU reset | Unknown required sequence | Unknown | No | Disabled. No reset/cycle inferred. |
-| Security access | Unknown | Unknown | No | No seeds/keys/algorithms implemented or bypassed. |
-| ABS service bleed | Unknown Ford service routine | Unknown | No | Disabled pump/valve routine placeholder only. |
+## Verified on this car — user-reported capture
 
-## Adapter findings (distinct from vehicle verification)
+The supplied request summary reports HS-CAN TX to 0x760 with `19 02 FF` and RX from 0x768 with reconstructed `7F 19 11`. This is a valid negative diagnostic response: the address pair was observed, and service 0x19 was rejected with NRC 0x11. It is not a communication failure, successful DTC read, proof of UDS support, or proof of programming compatibility. The original JSON capture has not been supplied in this checkout; provenance is the user's reported real capture, not independent replay.
 
-Official [OBDLink Reference and Programming Manual](https://www.scantool.net/scantool/downloads/678/obdlink_frpm_e.pdf) documents STP preset selection and `STCSEGR`: enabled receive segmentation reconstructs multi-frame messages; disabled preserves frames for local reconstruction. This supports retaining receive frames rather than making up CAN traffic. Existing HS-CAN preset `STP 33` is reused. The dedicated reader uses existing ELM header/spacing controls with header display enabled. It requires OK acknowledgments and rejects unrecognized output formats rather than silently decoding them.
+The same report contains `ATE0\rOK\r\r`, `ATRV -> 7.7V`, and `010C -> 410C0000` (zero RPM during KOEO). The low voltage blocks further ABS activity. External multimeter verification is required before any future run. Software must not compensate or calibrate away this reading.
 
-The transport exposes prompt-terminated command responses, not observed outgoing CAN frames. It cannot promise full TX/flow-control visibility or passive sniffing. Logical TX framing and explicitly instructed automatic FC are now included in validation traces. Actual TX/FC bus capture still requires a separately verified monitoring workflow; no monitoring command is enabled.
+## Documented / sourced
 
-## Evidence to collect next
+- [OBDLink FRPM revision E](https://www.scantool.net/scantool/downloads/678/obdlink_frpm_e.pdf), sections 6–8 and 12–13, documents adapter command/response handling, device identity, voltage querying, CAN addressing and ISO-TP reception. These are adapter capabilities, not evidence of a Ford ABS application service. STDI returns identity rather than OK; ATRV reads voltage (supported for backward compatibility). No new adapter command or calibration is enabled.
+- [ISO 14230-3:1999](https://www.iso.org/standard/23921.html) identifies the KWP2000 application-layer standard. Its existence does not establish this controller's protocol or any safe target-specific request.
+- Searches of public Ford service content, FORScan material and ISO metadata did not establish a target-specific DTC or identification request for BE5C-2C219-AA at 760/768. Public material about a different Fusion generation, hybrid brake system or other ABS vendor is insufficient. No such command is marked documented for this target.
 
-1. Obtain Ford factory replacement/PMI information for this VIN and exact original/replacement part/hardware identifiers, including supersession/compatibility information. Suffix differences alone establish nothing.
-2. Run [Validate Original ABS Module](ford-abs-validation.md) with the user-supplied 760/768 candidate. Export text and JSON, including failures. Retain vehicle context, date, ECU identity and raw unmodified output. Mock observations never verify this car.
-3. Confirm DTC format and supported identification reads in the default session. Add only sourced, bounded requests with strict response decoding and tests.
-4. Establish configuration-read mapping and integrity checks; retain original raw responses and readable current configuration before proposing restoration.
-5. Separately establish exact configuration-write and clearing procedures and any documented security access. If unavailable, keep the boundary unsupported.
-6. Obtain the hydraulic service bleed procedure independently, including prerequisites, activation sequence, responses and abort behavior. Never experiment with pump/valve commands.
+## Hypothesis — not authorized for transmission
 
-Update this table with actual evidence before marking a command verified. Protocol parsing tests verify software behavior only.
+A legacy Ford/KWP-style application layer is a research possibility only. Rejection of service 0x19 does not uniquely identify an alternative protocol. No replacement service, subfunction, DID, local identifier, session sequence or DTC record layout is verified. The branch name does not establish KWP support.
 
-## Read-only validation additions
+## Current implementation and next evidence
 
-The candidate is now supplied in the UI; sessions start Candidate (or User configured for edited IDs) and only a matching valid positive diagnostic response records Observed on vehicle. Negative replies, incorrect IDs and incomplete messages do not promote the pair. Adapter setup uses documented normal addressing, explicit request/response FC mapping, an exact ISO-TP/FC classification filter and a receive filter. It logs every submitted adapter command, raw reply, logical request and instructed automatic FC, reported RX frame and reconstructed response. See the [validation workflow](ford-abs-validation.md) for sources and exact visibility limits. Writes, security, resets and bleed remain disabled.
+The existing `19 02 FF` read remains in the hard read-only allowlist; it has no fallback. Valid matching positive or negative responses promote the session's address pair to Observed on vehicle. Wrong IDs, incomplete ISO-TP and malformed negative replies do not. Optional `22 F1 87` remains unverified for this module and is sent only after a successful DTC read; leave it disabled.
+
+Raw adapter exchanges, reported receive CAN frames, reconstructed payloads and NRCs are retained. TX and automatic flow-control traces remain logical unless physically reported. Tests use mocks and never access a serial device.
+
+The voltage guard requires a finite, parseable adapter value within 10–16 V. This is the existing application's conservative rejection window, not a sourced Ford module operating specification or a guarantee of adequate battery health. Missing/malformed voltage also blocks before RPM and ABS requests.
+
+Next: obtain the original JSON export and Ford/ATE documentation for the exact module, or an existing known read-only scan capture with source, vehicle/module identity, request bytes and responses. Establish request purpose, default-session availability and response layout before implementing one bounded change. Do not repeat the rejected DTC request merely to rediscover the address pair.
+
+All As-Built/configuration/VIN writes, security access, session control, ECU reset, DTC clearing, memory access, flashing, pump/solenoid routines, bleed and PMI remain disabled. No vehicle request was transmitted during this development.

@@ -56,7 +56,7 @@ Snapshots are JSON files stored in `~/Library/Application Support/EdgeDiagnostic
 
 ## Ford ABS replacement investigation
 
-The native ABS screen adds an addressed read/test workflow, optional F187 identification, strict ISO-TP/DTC parsing, raw receive-frame inspection, text/JSON transcript export, versioned ABS backups, manual As-Built import and original/replacement comparison. The configurable `760/768` HS-CAN profile is a user-supplied candidate, not verified on this Fusion; a matching valid positive response records an observation in that validation session. No live hardware validation is claimed.
+The native ABS screen adds an addressed read/test workflow, optional F187 identification, strict ISO-TP/DTC parsing, raw receive-frame inspection, text/JSON transcript export, versioned ABS backups, manual As-Built import and original/replacement comparison. The configurable `760/768` HS-CAN profile starts each session as a candidate; a matching valid positive or negative diagnostic response records an observation in that validation session. The user reports a real 760/768 negative reply; see the research ledger for provenance.
 
 Configuration reads/writes, DTC clearing, reset, security access and hydraulic service bleed remain unsupported. Imported As-Built data is marked unverified and is never transmitted. READ ONLY remains mandatory. Use KOEO for ABS work and follow the displayed battery/connection reminders.
 

@@ -45,6 +45,37 @@ final class ABSValidationTests: XCTestCase {
         XCTAssertFalse(AdapterCommandResponse.acknowledges(command: "ATE0", raw: "?\r"))
     }
 
+    func testAdapterErrorsOverrideOKIncludingEchoedQuestionMark() {
+        for raw in ["ATE0\r?\rOK\r>", "OK\rERROR\r", "OK\nCAN ERROR", "OK\rSTOPPED", "OK\rBUFFER FULL"] {
+            XCTAssertFalse(AdapterCommandResponse.acknowledges(command: "ATE0", raw: raw), raw)
+        }
+        let transport = ValidationTransport(); transport.deviceIdentity = "STDI\r?\r>"
+        XCTAssertEqual(run(transport).outcome, .adapterFailure)
+        XCTAssertFalse(transport.commands.contains("1902FF"))
+    }
+
+    func testValueQueriesAcceptEchoAndPromptWithoutOKAndRetainRawOutput() {
+        let transport = ValidationTransport()
+        transport.deviceIdentity = "STDI\rOBDLink EX r2.7.1\r>"
+        transport.voltageResponse = "ATRV\r12.6V\r>"
+        let session = run(transport)
+        XCTAssertEqual(session.outcome, .responded)
+        XCTAssertEqual(session.adapterVoltage, 12.6)
+        XCTAssertTrue(session.adapterExchanges.contains { $0.command == "ATRV" && $0.response == transport.voltageResponse })
+    }
+
+    func testVoltagePreflightFailsClosedBeforeAnyVehicleRequest() {
+        for raw in ["", "?", "NaN", "12.6", "12.6V\rOK", "0.0V", "7.7V", "16.1V", "infV", "-1V"] {
+            let transport = ValidationTransport(); transport.voltageResponse = raw
+            let session = run(transport)
+            XCTAssertTrue([ABSValidationOutcome.preflightBlocked, .adapterFailure].contains(session.outcome), raw)
+            XCTAssertFalse(transport.commands.contains("010C"), raw)
+            XCTAssertFalse(transport.commands.contains("1902FF"), raw)
+            XCTAssertFalse(transport.commands.contains("22F187"), raw)
+            XCTAssertTrue(session.adapterExchanges.contains { $0.command == "ATRV" && $0.response == raw })
+        }
+    }
+
     func testImplausiblyLowVoltageBlocksBeforeABSRequest() {
         let transport = ValidationTransport()
         transport.voltageResponse = "7.7V"
@@ -133,6 +164,7 @@ final class ABSValidationTests: XCTestCase {
             XCTAssertEqual(session.dtcResult.status, .negative)
             XCTAssertEqual(session.dtcResult.nrc, UInt8(nrc))
             XCTAssertEqual(session.addressing.status, .observed)
+            XCTAssertTrue(session.absResponded)
             XCTAssertTrue(session.transcript.contains { $0.service == 0x19 && $0.nrc == UInt8(nrc) && $0.positiveResponse == false })
             XCTAssertEqual(transport.commands.last, "1902FF")
         }
@@ -256,13 +288,14 @@ final class ABSValidationTests: XCTestCase {
         XCTAssertFalse(malformed.commands.contains("1902FF"))
     }
 
-    func testUnknownRPMTextCannotBeSilentlyParsedAsZeroAndVoltageNaNIsUnavailable() throws {
+    func testUnknownRPMTextAndUnavailableVoltagePreventABSRequests() throws {
         let transport = ValidationTransport(); transport.rpmResponse = "41 0C 00 00 unknown"
         XCTAssertEqual(run(transport).outcome, .transportFailure)
         XCTAssertFalse(transport.commands.contains("1902FF"))
         let unavailable = ValidationTransport(); unavailable.voltageResponse = "NaN"
         let session = run(unavailable)
-        XCTAssertEqual(session.outcome, .responded)
+        XCTAssertEqual(session.outcome, .preflightBlocked)
+        XCTAssertFalse(unavailable.commands.contains("1902FF"))
         XCTAssertNil(session.adapterVoltage)
         XCTAssertNoThrow(try session.jsonData())
     }

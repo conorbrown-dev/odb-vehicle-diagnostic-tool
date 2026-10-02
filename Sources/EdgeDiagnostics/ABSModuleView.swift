@@ -156,7 +156,7 @@ struct ABSModuleView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Validation result: \(session.outcome.rawValue)").font(.headline)
                         Text(session.detail).textSelection(.enabled)
-                        Text("ABS responded: \(session.absResponded ? "Yes" : "No valid positive DTC response")")
+                        Text("ABS responded: \(session.absResponded ? "Yes" : "No valid diagnostic response")")
                         Text("Session pair: \(String(format: "%03X / %03X", session.addressing.requestID, session.addressing.responseID)) • \(session.addressing.status.rawValue)")
                         Text("DTC read: \(session.dtcResult.status.rawValue) • \(session.dtcs.count) records. F187: \(session.f187Result.status.rawValue)")
                         Text("F187 raw payload: \(session.f187Result.payload?.hex ?? "Unavailable / not attempted")")

@@ -1,6 +1,6 @@
 # Validate Original ABS Module
 
-This workflow prepares the first read-only capture from the original ABS unit on a 2012 Ford Fusion SEL 2.5L FWD with an OBDLink EX. **The application has not been tested against that vehicle. The 760/768 pair is still a candidate, not vehicle-verified.** No programming, clearing, security access, reset or actuator requests are implemented.
+This document describes the existing read-only capture workflow from the original ABS unit on a 2012 Ford Fusion SEL 2.5L FWD with an OBDLink EX. **The user reports a valid negative reply at 760/768 on this vehicle. Service 0x19 is unsupported; do not repeat this workflow until voltage is externally verified and a next request is justified.** No programming, clearing, security access, reset or actuator requests are implemented.
 
 ## In-car steps
 
@@ -10,7 +10,7 @@ This workflow prepares the first read-only capture from the original ABS unit on
 4. In **ABS Module**, keep the default draft profile: HS-CAN, normal 11-bit addressing, request `760`, response `768`. It is labeled **Candidate / not vehicle-verified**. IDs can be changed individually; changed IDs are **User configured / not vehicle-verified** until observed in this attempt. Do not sweep addresses. Leave the profile source as the supplied candidate reference or record the source for any edits.
 5. Check **Ignition ON**, **Engine OFF**, and **Other diagnostic tools closed; no programming / write-capable session active**. READ ONLY is mandatory and HS-CAN is selected by the workflow. The app stops telemetry when validation starts. A recent known nonzero RPM sample blocks starting; a fresh generic RPM read also blocks before any ABS request if nonzero. If RPM is unavailable, the application relies on your engine-OFF confirmation and says so in the result/export.
 6. Leave **Attempt optional F187 identification** unchecked for the first capture. F187 is the already-supported UDS manufacturer spare-part-number read; its availability on this ABS unit is unknown.
-7. Click **Validate Original ABS Module** once. The workflow reinitializes the adapter, verifies OBDLink EX identity via STDI, reads voltage if obtainable, checks RPM, configures the selected HS-CAN/header/filter/flow-control pair, and submits `19 02 FF`. This existing DTC read is also the communication test: no second discovery request is sent. A valid `59 02` response, even with zero records, establishes the observed pair and supplies the DTC results.
+7. Click **Validate Original ABS Module** once. The workflow reinitializes the adapter, verifies OBDLink EX identity via STDI, requires a valid voltage within the app’s 10–16 V preflight window, checks RPM, configures the selected HS-CAN/header/filter/flow-control pair, and submits `19 02 FF`. This existing DTC read is also the communication test: no second discovery request is sent. A valid `59 02` response, even with zero records, establishes the observed pair and supplies the DTC results.
 8. Read the result. A negative response, timeout, missing response, CAN traffic on another ID, malformed ISO-TP or adapter failure are distinct outcomes. Failures stop without retries, fallback reads or restoration commands and normally require reconnecting. No additional undocumented services are tried.
 9. Select **JSON** and click **Export ABS Validation Session**, then save the capture. Change the format to **Text** and click the same button to save the human-readable version. These controls work for failed/partial attempts as well as successes. Export before starting another validation: the one-click exporter contains the latest attempt. The raw console exporter retains the accumulated ABS traces for this app lifetime.
 10. If the DTC read succeeded and you want F187 identification, reconnect when required, leave the confirmed conditions in place, enable the optional F187 checkbox and run a second validation. `22 F1 87` is sent only after a valid DTC response. An F187 negative response or timeout stops the attempt, while the prior DTC result and observed pair remain in the session. Export that second attempt separately.
@@ -35,7 +35,7 @@ Timestamps mark host submission, adapter response completion, and parsing, rathe
 
 ## Address observation and outcomes
 
-Each attempt starts fresh as Candidate or User configured. Imported/past observation does not promote a new attempt. Only a matching valid positive diagnostic response marks the session's configured request/response pair **Observed on vehicle** and records `observedAt`. Negative responses, unknown services, incomplete messages and traffic on another CAN ID never promote it. Backups carry the session's status and observation time. Observation establishes that pair's read conversation; it does not establish Ford compatibility or programming capability. No actual on-vehicle observation has been recorded by this development work; test fixtures are synthetic.
+Each attempt starts fresh as Candidate or User configured. Imported/past observation does not promote a new attempt. Only a matching valid positive or negative diagnostic response marks the session's configured request/response pair **Observed on vehicle** and records `observedAt`. Matching valid negative responses also establish address observation without establishing service support. Unknown payloads, incomplete messages and traffic on another CAN ID never promote it. Backups carry the session's status and observation time. Observation establishes that pair's read conversation; it does not establish Ford compatibility or programming capability. The user-reported 7F 19 11 capture establishes address observation on this car; test fixtures remain synthetic.
 
 Results distinguish:
 
@@ -45,9 +45,9 @@ Results distinguish:
 - **Negative diagnostic response**: matching negative service reply, including raw NRC. Response-pending is retained and stops this conservative reader without an automatic retry.
 - **Transport/ISO-TP failure**: serial timeout/loss, incomplete/out-of-sequence frames, malformed raw output or missing F187 response after a successful DTC read.
 - **Adapter failure**: setup acknowledgment/identity failure or adapter/CAN error status.
-- **Preflight blocked**: missing confirmations/read-only settings, or a running-engine RPM reading. No ABS request is sent.
+- **Preflight blocked**: missing confirmations/read-only settings, a running-engine RPM reading, or unavailable/invalid/out-of-window adapter voltage. No ABS request is sent.
 
-A session can say **ABS responded: Yes** while its final outcome is an F187 negative response or later transport failure. It retains the successfully read DTCs and observation instead of collapsing the entire attempt to “module not found.”
+A session says **ABS responded: Yes** for a valid matching negative DTC reply too; DTC result remains negative. It can also retain that status after an F187 failure. It retains the successfully read DTCs and observation instead of collapsing the entire attempt to “module not found.”
 
 JSON includes schema/session ID, ISO-8601 millisecond dates, known VIN/provenance, adapter identity/voltage, RPM/preflight, network/IDs/status/observation, available module information, DTC/F187 outcomes/raw payload/NRC, chronological trace, verbatim adapter exchanges and reconnect requirement. Text includes the same evidence. Credentials/passwords are not collected by this transport or included in either format.
 
