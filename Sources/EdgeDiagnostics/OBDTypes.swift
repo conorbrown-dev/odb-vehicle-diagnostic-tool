@@ -158,7 +158,7 @@ enum OBDClientError: LocalizedError {
         case .noData(let response): "No usable vehicle data in response: \(response)"
         case .adapter(let message): message
         case .negativeResponse(let service, let code):
-            "UDS service 0x\(String(format: "%02X", service)) was rejected: \(udsNegativeResponseDescription(code)) (NRC 0x\(String(format: "%02X", code)))."
+            "Diagnostic service 0x\(String(format: "%02X", service)) was rejected: \(udsNegativeResponseDescription(code)) (NRC 0x\(String(format: "%02X", code)))."
         }
     }
 
