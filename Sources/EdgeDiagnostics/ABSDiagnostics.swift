@@ -75,8 +75,9 @@ enum DiagnosticResponse {
         let identifier = (service == 0x22 || service == 0x62) && payload.count >= 3 ? String(format: " DID %02X%02X", payload[1], payload[2]) : ""
         let subfunction = (service == 0x19 || service == 0x59) && payload.count >= 2 ? String(format: " subfunction %02X", payload[1]) : ""
         let protocolVersion = (service == 0x22 || service == 0x62) && payload.count >= 3 && payload[1...2] == [0xE6, 0xF3]
-        let versionLabel = protocolVersion ? " • Ford diagnostic specification version" : ""
-        let undecodedDID = (service == 0x62 || service == 0x22) && payload.count >= 3 && (payload[1] != 0xF1 || payload[2] != 0x87) && !protocolVersion
+        let vinStart = (service == 0x22 || service == 0x62) && payload.count >= 3 && payload[1...2] == [0xE3, 0x00]
+        let versionLabel = protocolVersion ? " • Ford diagnostic specification version" : (vinStart ? " • Ford legacy VIN first segment (not complete VIN)" : "")
+        let undecodedDID = (service == 0x62 || service == 0x22) && payload.count >= 3 && (payload[1] != 0xF1 || payload[2] != 0x87) && !protocolVersion && !vinStart
         let undecodedSubfunction = (service == 0x59 || service == 0x19) && payload.count >= 2 && payload[1] != 2
         let unknown = undecodedDID || undecodedSubfunction ? "\nUnknown response (identifier/subfunction not implemented)\nRaw payload: " + payload.hex : ""
         return String(format: "0x%02X ", service) + name + identifier + versionLabel + subfunction + (service == 0x58 || service == 0x59 || service == 0x62 ? " • positive response" : " • request") + unknown
@@ -94,6 +95,13 @@ enum DiagnosticResponse {
         }
         if request == [0x22, 0xE6, 0xF3] {
             guard payload.count == 4 else { throw ABSError.invalid("Malformed Ford diagnostic specification version response") }
+        }
+        if request == [0x22, 0xE3, 0x00] {
+            // GDS v2003.0 §16.8.2 / Table 16.12: three zero bytes, then VIN character 1.
+            guard payload.count == 7, payload[3...5] == [0, 0, 0],
+                  "0123456789ABCDEFGHJKLMNPRSTUVWXYZ".utf8.contains(payload[6]) else {
+                throw ABSError.invalid("Unexpected Ford legacy VIN first-segment layout; retain raw response without inferring a VIN")
+            }
         }
         if request == [0x18, 0x00, 0xFF, 0x00] {
             guard payload.count >= 2, (payload.count - 2) % 3 == 0 else { throw ABSError.invalid("Malformed Ford continuous DTC record layout") }

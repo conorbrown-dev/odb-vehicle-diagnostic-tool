@@ -155,6 +155,11 @@ struct ABSModuleView: View {
                                                   preflight: validationPreflight, readIdentification: false, operation: .fordContinuousDTCs)
                     }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed || requestHeader.uppercased() != "760" || responseHeader.uppercased() != "768")
                 }
+                Button("Read ABS VIN first segment (E300)") {
+                    model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
+                                              preflight: validationPreflight, readIdentification: false, operation: .vinStart)
+                }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed || requestHeader.uppercased() != "760" || responseHeader.uppercased() != "768")
+                Text("Reads one documented legacy VIN segment: three padding bytes and VIN character 1. Full ABS VIN and identifier support remain unverified; review the export before further reads.").font(.caption)
                 HStack {
                     Button("Validate Original ABS Module") {
                         model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
@@ -176,6 +181,10 @@ struct ABSModuleView: View {
                             ForEach(Array((session.fordContinuousDTCRecords ?? []).enumerated()), id: \.offset) { _, record in
                                 Text("\(record.code) • Ford raw status \(String(format: "%02X", record.rawStatus)) (not UDS flags)").textSelection(.enabled)
                             }
+                        }
+                        if let result = session.vinStartResult {
+                            Text("ABS VIN first segment: \(result.status.rawValue) • \(result.detail)")
+                            Text("E300 raw payload: \(result.payload?.hex ?? "Unavailable")").textSelection(.enabled)
                         }
                         if let result = session.protocolVersionResult {
                             Text("Protocol version read: \(result.status.rawValue) • \(result.detail)")

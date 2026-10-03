@@ -27,7 +27,7 @@ enum SafetyPolicy {
             return pair.count == 2 && pair.allSatisfy { $0.count == 3 && $0.allSatisfy { "0123456789ABCDEF".contains($0) } && (UInt16($0, radix: 16).map { $0 <= 0x7FF } ?? false) } && pair[0] != pair[1]
         }
         guard normalized.allSatisfy(\.isHexDigit) else { return false }
-        if ["03", "07", "1902FF", "22F187", "22E6F3", "1800FF00"].contains(normalized) { return true }
+        if ["03", "07", "1902FF", "22F187", "22E6F3", "22E300", "1800FF00"].contains(normalized) { return true }
         guard normalized.count == 4 else { return false }
         let service = String(normalized.prefix(2))
         return ["01", "02", "09"].contains(service)

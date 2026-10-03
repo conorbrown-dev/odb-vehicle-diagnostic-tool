@@ -279,13 +279,14 @@ final class OBDClient: @unchecked Sendable {
 
     private func storeABSReadResult(_ result: ABSReadResult, request: [UInt8]) {
         if request == [0x18, 0x00, 0xFF, 0x00] { absSession!.fordContinuousDTCResult = result }
+        else if request == [0x22, 0xE3, 0x00] { absSession!.vinStartResult = result }
         else if request == [0x22, 0xE6, 0xF3] { absSession!.protocolVersionResult = result }
         else if request == [0x22, 0xF1, 0x87] { absSession!.f187Result = result }
         else { absSession!.dtcResult = result }
     }
 
     private func absRequest(_ bytes: [UInt8], profile: FordModuleAddressing) throws -> [UInt8] {
-        guard bytes == [0x19, 0x02, 0xFF] || bytes == [0x22, 0xF1, 0x87] || bytes == [0x22, 0xE6, 0xF3] || bytes == [0x18, 0x00, 0xFF, 0x00], absSession?.preflight.readOnly == true else {
+        guard bytes == [0x19, 0x02, 0xFF] || bytes == [0x22, 0xF1, 0x87] || bytes == [0x22, 0xE6, 0xF3] || bytes == [0x18, 0x00, 0xFF, 0x00] || bytes == [0x22, 0xE3, 0x00], absSession?.preflight.readOnly == true else {
             throw OBDClientError.unsafeCommand(bytes.hex)
         }
         let identification = bytes == [0x22, 0xF1, 0x87]
@@ -429,6 +430,7 @@ final class OBDClient: @unchecked Sendable {
                     throw ABSValidationFailure(outcome: .preflightBlocked, message: "Ford research reads require the observed 760/768 pair and no optional identification read.")
                 }
                 if operation == .protocolVersion { absSession!.protocolVersionResult = ABSReadResult() }
+                else if operation == .vinStart { absSession!.vinStartResult = ABSReadResult() }
                 else { absSession!.fordContinuousDTCResult = ABSReadResult() }
             }
             guard preflight.blockers.isEmpty else { throw ABSValidationFailure(outcome: .preflightBlocked, message: preflight.blockers.joined(separator: "; ")) }
@@ -481,6 +483,15 @@ final class OBDClient: @unchecked Sendable {
                 try restoreAfterABS()
                 absSession!.outcome = .responded
                 absSession!.detail = detail + ". No DTC, identification or configuration read was attempted."
+            } else if operation == .vinStart {
+                try configureABS(addressing)
+                let payload = try absRequest([0x22, 0xE3, 0x00], profile: addressing)
+                let character = String(decoding: payload.suffix(1), as: UTF8.self)
+                let detail = "Documented legacy E300 layout returned VIN character 1: " + character + ". This is one character, not a complete ABS VIN or a VIN-match verdict. Review capture before reading further segments."
+                absSession!.vinStartResult!.detail = detail
+                try restoreAfterABS()
+                absSession!.outcome = .responded
+                absSession!.detail = detail
             } else if operation == .fordContinuousDTCs {
                 try configureABS(addressing)
                 let payload = try absRequest([0x18, 0x00, 0xFF, 0x00], profile: addressing)
