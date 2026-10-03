@@ -28,6 +28,8 @@ final class AppModel: ObservableObject {
     @Published var ports: [String] = []
     @Published var status = "Disconnected"
     @Published var adapterIdentity = ""
+    @Published var adapterVoltageCheck: Double?
+    @Published var adapterVoltageCheckExchanges: [DiagnosticTranscriptEntry] = []
     @Published var vehicleVIN: String?
     @Published var moduleIdentification: ModuleIdentification?
     @Published var vehicleProfile: VehicleProfile?
@@ -67,6 +69,27 @@ final class AppModel: ObservableObject {
         let candidates = (try? FileManager.default.contentsOfDirectory(atPath: "/dev")) ?? []
         ports = candidates.filter { $0.hasPrefix("cu.usb") || $0.hasPrefix("cu.SLAB") }.map { "/dev/\($0)" }.sorted()
         if serialPath.isEmpty { serialPath = ports.first ?? "/dev/cu.usbserial-…" }
+    }
+
+    func checkAdapterVoltage() {
+        guard !isWorking, !isConnected else { return }
+        guard !serialPath.isEmpty, !serialPath.contains("…") else {
+            errorMessage = "Choose the OBDLink EX serial device first."; return
+        }
+        isWorking = true; errorMessage = nil; adapterVoltageCheck = nil
+        adapterVoltageCheckExchanges = []; status = "Checking adapter voltage…"
+        let path = serialPath
+        Task {
+            let voltageClient = OBDClient(transport: SerialTransport(path: path))
+            do {
+                adapterVoltageCheck = try await Task.detached { try voltageClient.checkAdapterVoltage() }.value
+                status = "Voltage check complete — disconnected"
+            } catch {
+                errorMessage = error.localizedDescription; status = "Voltage check failed — disconnected"
+            }
+            adapterVoltageCheckExchanges = voltageClient.drainTranscript()
+            isWorking = false
+        }
     }
 
     func connect() {
@@ -294,9 +317,20 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity)
                 Button("Find ports") { model.refreshPorts() }
+                Button("Check adapter voltage") { model.checkAdapterVoltage() }
+                    .disabled(model.isWorking || model.isConnected)
+                    .help("Reads adapter supply voltage only. Disconnect first; no vehicle diagnostic requests are sent.")
                 Button(model.isConnected ? "Disconnect" : "Connect") { model.isConnected ? model.disconnect() : model.connect() }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.isWorking)
+            }
+            if let voltage = model.adapterVoltageCheck {
+                Text(String(format: "Adapter voltage check: %.2f V — compare with the simultaneous multimeter reading.", voltage))
+                    .font(.caption)
+            }
+            ForEach(Array(model.adapterVoltageCheckExchanges.enumerated()), id: \.offset) { _, exchange in
+                Text("\(exchange.command) → \(String(reflecting: exchange.response))")
+                    .font(.caption.monospaced()).textSelection(.enabled)
             }
             Text(model.isConnected ? "\(model.status)  \(model.adapterIdentity)" : model.status)
                 .font(.caption).foregroundStyle(.secondary)

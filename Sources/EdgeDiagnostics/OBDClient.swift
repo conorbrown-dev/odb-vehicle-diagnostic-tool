@@ -89,6 +89,17 @@ final class OBDClient: @unchecked Sendable {
         return AdapterCommandResponse.voltage(response)
     }
 
+    /// Standalone supply check: only ATRV is sent; no ECU or setup requests.
+    func checkAdapterVoltage() throws -> Double {
+        operationLock.lock(); defer { operationLock.unlock() }
+        defer { transport.close() }
+        try transport.open()
+        guard let reading = try voltage() else {
+            throw OBDClientError.adapter("Adapter voltage is unavailable or malformed; raw reply is retained in the transcript.")
+        }
+        return reading
+    }
+
     /// Standard OBD-II Mode 09/PID 02. This requests identification data only.
     func vehicleVIN() throws -> String? {
         let bytes = hexBytes(try send("0902"))

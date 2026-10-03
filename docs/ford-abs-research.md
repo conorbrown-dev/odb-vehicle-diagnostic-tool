@@ -1,12 +1,12 @@
 # Ford ABS protocol evidence ledger
 
-Updated 2026-10-02. Target: 2012 Ford Fusion SEL 2.5L FWD, original Ford/ATE BE5C-2C219-AA installed; replacement label AE5C-2C219-FE. Label differences establish no compatibility verdict.
+Updated 2026-10-03. Target: 2012 Ford Fusion SEL 2.5L FWD, original Ford/ATE BE5C-2C219-AA installed; replacement label AE5C-2C219-FE. Label differences establish no compatibility verdict.
 
-## Verified on this car — user-reported capture
+## Verified on this car — supplied real capture
 
-The supplied request summary reports HS-CAN TX to 0x760 with `19 02 FF` and RX from 0x768 with reconstructed `7F 19 11`. This is a valid negative diagnostic response: the address pair was observed, and service 0x19 was rejected with NRC 0x11. It is not a communication failure, successful DTC read, proof of UDS support, or proof of programming compatibility. The original JSON capture has not been supplied in this checkout; provenance is the user's reported real capture, not independent replay.
+The supplied request summary reports HS-CAN TX to 0x760 with `19 02 FF` and RX from 0x768 with reconstructed `7F 19 11`. This is a valid negative diagnostic response: the address pair was observed, and service 0x19 was rejected with NRC 0x11. It is not a communication failure, successful DTC read, proof of UDS support, or proof of programming compatibility. On October 3 the user supplied session D3B7BBB6-017F-458F-A637-274B6A85A02A, captured October 2 at 23:37 UTC. Its verbatim adapter response is `768 03 7F 19 11 \r\r`: CAN ID 0x768, single-frame PCI 03, three-byte negative payload. The old export's Candidate status is stale application behavior; the raw reply establishes observation. Its empty DTC array does not establish zero faults, and F187 was not attempted.
 
-The same report contains `ATE0\rOK\r\r`, `ATRV -> 7.7V`, and `010C -> 410C0000` (zero RPM during KOEO). The low voltage blocks further ABS activity. External multimeter verification is required before any future run. Software must not compensate or calibrate away this reading.
+The same report contains `ATE0\rOK\r\r`, `ATRV -> 7.7V`, and `010C -> 410C0000` (zero RPM during KOEO). The low voltage blocks further ABS activity. On October 3, after overnight charging, the user reported multimeter values 12.26 V and 12.53 V in response to the requested ignition-OFF and KOEO measurements (order inferred from that question). These measurements are not simultaneous with the old adapter reading. A fresh adapter-only ATRV check must establish whether the readings now agree before further ABS work. Software must not compensate or calibrate away this reading.
 
 ## Documented / sourced
 
@@ -26,6 +26,10 @@ Raw adapter exchanges, reported receive CAN frames, reconstructed payloads and N
 
 The voltage guard requires a finite, parseable adapter value within 10–16 V. This is the existing application's conservative rejection window, not a sourced Ford module operating specification or a guarantee of adequate battery health. Missing/malformed voltage also blocks before RPM and ABS requests.
 
-Next: obtain the original JSON export and Ford/ATE documentation for the exact module, or an existing known read-only scan capture with source, vehicle/module identity, request bytes and responses. Establish request purpose, default-session availability and response layout before implementing one bounded change. Do not repeat the rejected DTC request merely to rediscover the address pair.
+Next: compare a fresh adapter-only voltage check with a simultaneous multimeter reading, then obtain Ford/ATE documentation for the exact module, or an existing known read-only scan capture with source, vehicle/module identity, request bytes and responses. Establish request purpose, default-session availability and response layout before implementing one bounded change. Do not repeat the rejected DTC request merely to rediscover the address pair.
 
 All As-Built/configuration/VIN writes, security access, session control, ECU reset, DTC clearing, memory access, flashing, pump/solenoid routines, bleed and PMI remain disabled. No vehicle request was transmitted during this development.
+
+## Adapter-only voltage comparison
+
+Run `swift run` from the current feature branch. Close other serial/diagnostic tools, leave the original module installed, park with ignition ON / engine OFF, and select the EX serial device. Keep the app disconnected and click **Check adapter voltage** once. This opens the serial port, sends only `ATRV`, retains the raw reply visibly and closes the port. It sends no RPM, VIN, ABS request, reset or calibration command. Record a multimeter measurement at the battery at the same time, plus charger connected/disconnected status, and provide both values and the displayed raw reply. Do not click Connect or Validate Original ABS Module for this comparison. A material discrepancy requires investigating supply/connection/measurement issues; never bypass the ABS voltage guard.
