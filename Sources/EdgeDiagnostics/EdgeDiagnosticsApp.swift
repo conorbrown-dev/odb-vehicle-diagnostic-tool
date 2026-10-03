@@ -3,7 +3,6 @@ import AppKit
 import Charts
 import UniformTypeIdentifiers
 
-@main
 struct EdgeDiagnosticsApp: App {
     @NSApplicationDelegateAdaptor(EdgeDiagnosticsAppDelegate.self) private var appDelegate
 

@@ -63,3 +63,29 @@ Configuration reads/writes, DTC clearing, reset, security access and hydraulic s
 Run **Validate Original ABS Module** with the required KOEO/no-external-programming confirmations. The workflow initializes the adapter, checks fresh RPM, retains partial/failure outcomes and exports a complete validation session as JSON or text. TX framing and automatic FC are explicitly logical where the adapter hides physical transmission.
 
 See [in-car validation steps](docs/ford-abs-validation.md), [ABS workflow and architecture](docs/ford-abs.md) and the [protocol research ledger](docs/ford-abs-research.md) for exact capabilities, capture limitations and missing Ford procedures.
+
+## Read-only CLI
+
+The same executable supports terminal operations without launching the GUI:
+
+```sh
+swift run EdgeDiagnostics --cli help
+swift run EdgeDiagnostics --cli ports
+```
+
+Available reads are `voltage` (ATRV only), `abs-version` (22 E6 F3), `abs-dtcs` (18 00 FF 00), and `abs-vin-start` (22 E3 00). Each ABS invocation performs the existing OBDLink EX identity, fresh voltage and engine RPM preflight, then sends exactly one selected read at 760/768. It uses the same client, parser and hard read-only allowlist as the GUI. No raw command, address override, sweep, automatic retry or write interface exists.
+
+Fully quit the GUI and other diagnostic/serial tools. Verify current physical conditions with the human operator before supplying confirmation flags; flags record that verification and must not be treated as lasting permission for future runs. Example for the next single E300 read:
+
+```sh
+swift run EdgeDiagnostics --cli abs-vin-start \
+  --port /dev/cu.YOUR_OBDLINK_DEVICE --output ./captures \
+  --ignition-on --engine-off --parked --original-abs-installed \
+  --other-tools-closed --read-only
+```
+
+`--vehicle-vin VIN` optionally supplies a known reference without an additional vehicle request. E300 yields only the documented first VIN character; support on this ABS must be established from its response before enabling further segments.
+
+The CLI creates a unique capture directory before opening the adapter, records the invocation/confirmation provenance, and exports JSON and text even for negative responses, malformed replies or blocked preflight. Exit 0 means a positive read, 1 a failed/non-positive read or export failure, and 2 invalid arguments or an unavailable capture destination. A negative response still preserves observed addressing in the session. `pending.txt` remains if an attempt is interrupted or export does not complete. Captures under `./captures` are Git-ignored and remain local.
+
+For an adapter-only check, use `--cli voltage --port /dev/cu.YOUR_OBDLINK_DEVICE --output ./captures`; it sends only ATRV and closes the serial port. `help` and `ports` never open the adapter. GUI launch remains `swift run EdgeDiagnostics` without arguments.
