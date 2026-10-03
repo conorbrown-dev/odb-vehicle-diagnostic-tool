@@ -484,7 +484,10 @@ final class OBDClient: @unchecked Sendable {
             } else if operation == .fordContinuousDTCs {
                 try configureABS(addressing)
                 let payload = try absRequest([0x18, 0x00, 0xFF, 0x00], profile: addressing)
-                absSession!.fordContinuousDTCResult!.detail = "Structurally valid Ford continuous DTC response; raw two-byte DTC/status records retained for capture review. No UDS interpretation or configuration read."
+                let records = try FordABSService.decodeContinuousDTCs(payload)
+                absSession!.fordContinuousDTCRecords = records
+                absSession!.dtcs = records.map(\.diagnosticCode)
+                absSession!.fordContinuousDTCResult!.detail = "Ford continuous DTC identifiers decoded; raw Ford status bytes retained separately without UDS interpretation. No configuration read."
                 try restoreAfterABS()
                 absSession!.outcome = .responded
                 absSession!.detail = String(format: "Ford continuous DTC read returned %d raw records. Review export before decoding status or choosing another request.", (payload.count - 2) / 3)

@@ -173,7 +173,9 @@ struct ABSModuleView: View {
                         if let result = session.fordContinuousDTCResult {
                             Text("Ford continuous DTC raw read: \(result.status.rawValue) • \(result.detail)")
                             Text("Raw payload: \(result.payload?.hex ?? "Unavailable")").textSelection(.enabled)
-                            Text("Decoded UDS DTC list does not represent this raw Ford read; use the export.").font(.caption)
+                            ForEach(Array((session.fordContinuousDTCRecords ?? []).enumerated()), id: \.offset) { _, record in
+                                Text("\(record.code) • Ford raw status \(String(format: "%02X", record.rawStatus)) (not UDS flags)").textSelection(.enabled)
+                            }
                         }
                         if let result = session.protocolVersionResult {
                             Text("Protocol version read: \(result.status.rawValue) • \(result.detail)")

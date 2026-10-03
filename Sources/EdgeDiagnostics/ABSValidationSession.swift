@@ -69,6 +69,7 @@ struct ABSValidationSession: Codable, Equatable, Identifiable {
     var f187Result = ABSReadResult()
     var protocolVersionResult: ABSReadResult?
     var fordContinuousDTCResult: ABSReadResult?
+    var fordContinuousDTCRecords: [FordContinuousDTCRecord]?
     var transcript: [ABSTrace] = []
     var adapterExchanges: [DiagnosticTranscriptEntry] = []
     var requiresReconnect = false
@@ -114,8 +115,11 @@ struct ABSValidationSession: Codable, Equatable, Identifiable {
         TX formatting and automatic FC are LOGICAL unless actually reported by the adapter. Logical FC means instructed/expected, not proof of transmission. RX timestamps are host processing times.
         """
         let codes = dtcs.map { "\($0.displayIdentifier) status=\($0.statusByte.map { String(format: "%02X", $0) } ?? "—") \($0.udsStatusSummary ?? "")" }.joined(separator: "\n")
+        let fordRecords = (fordContinuousDTCRecords ?? []).map {
+            "\($0.code) Ford raw status=\(String(format: "%02X", $0.rawStatus)) code bytes=\($0.codeBytes.hex) (not UDS status or failure type)"
+        }.joined(separator: "\n")
         let events = transcript.map(\.textLine).joined(separator: "\n")
         let raw = adapterExchanges.map { "\(formatter.string(from: $0.timestamp)) COMMAND \($0.command)\nRESPONSE \($0.response)" }.joined(separator: "\n")
-        return Data((header + "\n\nDTCs:\n" + codes + "\n\nChronological trace:\n" + events + "\n\nRaw adapter exchanges:\n" + raw + "\n").utf8)
+        return Data((header + "\n\nDTCs:\n" + codes + "\n\nFord continuous DTC records:\n" + fordRecords + "\n\nChronological trace:\n" + events + "\n\nRaw adapter exchanges:\n" + raw + "\n").utf8)
     }
 }

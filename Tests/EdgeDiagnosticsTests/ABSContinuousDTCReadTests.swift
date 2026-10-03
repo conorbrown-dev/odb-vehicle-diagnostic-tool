@@ -18,12 +18,32 @@ final class ABSContinuousDTCReadTests: XCTestCase {
         XCTAssertEqual(session.dtcResult.status, .notAttempted)
         XCTAssertEqual(session.f187Result.status, .notAttempted)
         XCTAssertNil(session.protocolVersionResult)
-        XCTAssertTrue(session.dtcs.isEmpty)
+        XCTAssertEqual(session.dtcs.map(\.id), ["C1234"])
+        XCTAssertNil(session.dtcs.first?.statusByte)
+        XCTAssertNil(session.dtcs.first?.failureTypeByte)
+        XCTAssertNil(session.dtcs.first?.udsStatusSummary)
         XCTAssertEqual(transport.commands.filter { !$0.hasPrefix("AT") && !$0.hasPrefix("ST") }, ["010C", "1800FF00"])
         XCTAssertTrue(session.adapterExchanges.contains { $0.command == "1800FF00" && $0.response == transport.reply })
         XCTAssertTrue(String(decoding: session.textData(), as: UTF8.self).contains("58 01 52 34 60"))
         XCTAssertTrue(session.transcript.contains { $0.payload == [0x58, 1, 0x52, 0x34, 0x60] && $0.positiveResponse == true })
     }
+    func testActualVehicleThreeRecordCapture() throws {
+        let frames = try ABSCANParser.parse("768 10 0B 58 03 A9 00 E0 52 \r768 21 77 E0 50 9E 20 00 00 \r\r")
+        let payload = try ISOTP.assemble(frames)
+        XCTAssertEqual(payload, [0x58, 3, 0xA9, 0, 0xE0, 0x52, 0x77, 0xE0, 0x50, 0x9E, 0x20])
+        let records = try FordABSService.decodeContinuousDTCs(payload)
+        XCTAssertEqual(records.map(\.code), ["B2900", "C1277", "C109E"])
+        XCTAssertEqual(records.map(\.rawStatus), [0xE0, 0xE0, 0x20])
+        XCTAssertTrue(records.allSatisfy { $0.diagnosticCode.statusByte == nil && $0.diagnosticCode.failureTypeByte == nil })
+        let transport = ContinuousDTCTransport()
+        transport.reply = "768 10 0B 58 03 A9 00 E0 52 \r768 21 77 E0 50 9E 20 00 00 \r\r"
+        let session = run(transport)
+        XCTAssertEqual(session.fordContinuousDTCRecords, records)
+        XCTAssertTrue(String(decoding: session.textData(), as: UTF8.self).contains("B2900 Ford raw status=E0"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: session.jsonData()) as? [String: Any])
+        XCTAssertNotNil(json["fordContinuousDTCRecords"])
+    }
+
     func testZeroRecordResponseAndCappedCountValidation() throws {
         let transport = ContinuousDTCTransport(); transport.reply = "768 02 58 00"
         XCTAssertEqual(run(transport).outcome, .responded)
