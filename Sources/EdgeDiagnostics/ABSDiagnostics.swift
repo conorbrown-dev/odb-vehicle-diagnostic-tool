@@ -67,16 +67,19 @@ enum DiagnosticResponse {
         }
         let name: String
         switch service {
+        case 0x18, 0x58: name = "Ford ReadDTCByStatus (continuous DTCs; raw records)"
         case 0x19, 0x59: name = "ReadDTCInformation"
         case 0x22, 0x62: name = "ReadDataByIdentifier"
         default: return "Unknown response\nRaw payload: " + payload.hex
         }
         let identifier = (service == 0x22 || service == 0x62) && payload.count >= 3 ? String(format: " DID %02X%02X", payload[1], payload[2]) : ""
         let subfunction = (service == 0x19 || service == 0x59) && payload.count >= 2 ? String(format: " subfunction %02X", payload[1]) : ""
-        let undecodedDID = (service == 0x62 || service == 0x22) && payload.count >= 3 && (payload[1] != 0xF1 || payload[2] != 0x87)
+        let protocolVersion = (service == 0x22 || service == 0x62) && payload.count >= 3 && payload[1...2] == [0xE6, 0xF3]
+        let versionLabel = protocolVersion ? " • Ford diagnostic specification version" : ""
+        let undecodedDID = (service == 0x62 || service == 0x22) && payload.count >= 3 && (payload[1] != 0xF1 || payload[2] != 0x87) && !protocolVersion
         let undecodedSubfunction = (service == 0x59 || service == 0x19) && payload.count >= 2 && payload[1] != 2
         let unknown = undecodedDID || undecodedSubfunction ? "\nUnknown response (identifier/subfunction not implemented)\nRaw payload: " + payload.hex : ""
-        return String(format: "0x%02X ", service) + name + identifier + subfunction + (service == 0x59 || service == 0x62 ? " • positive response" : " • request") + unknown
+        return String(format: "0x%02X ", service) + name + identifier + versionLabel + subfunction + (service == 0x58 || service == 0x59 || service == 0x62 ? " • positive response" : " • request") + unknown
     }
 
     static func validate(_ payload: [UInt8], request: [UInt8]) throws -> [UInt8] {
@@ -91,6 +94,11 @@ enum DiagnosticResponse {
         }
         if request == [0x22, 0xE6, 0xF3] {
             guard payload.count == 4 else { throw ABSError.invalid("Malformed Ford diagnostic specification version response") }
+        }
+        if request == [0x18, 0x00, 0xFF, 0x00] {
+            guard payload.count >= 2, (payload.count - 2) % 3 == 0 else { throw ABSError.invalid("Malformed Ford continuous DTC record layout") }
+            let records = (payload.count - 2) / 3
+            guard Int(payload[1]) == min(records, 255) else { throw ABSError.invalid("Ford continuous DTC count mismatch") }
         }
         if service == 0x19 {
             guard payload.count >= 3, payload[1] == 0x02, (payload.count - 3) % 4 == 0 else { throw ABSError.invalid("Malformed DTC response") }
@@ -196,7 +204,7 @@ struct ABSTrace: Codable, Equatable, Identifiable {
         let sid = payload.first
         let negative = sid == 0x7F
         let decodedService = negative && payload.count >= 2 ? payload[1] : sid
-        let positive = direction == "RX" && !negative && (sid == 0x59 || sid == 0x62)
+        let positive = direction == "RX" && !negative && (sid == 0x58 || sid == 0x59 || sid == 0x62)
         let did: UInt16? = (sid == 0x22 || sid == 0x62) && payload.count >= 3 ? UInt16(payload[1]) << 8 | UInt16(payload[2]) : nil
         return Self(timestamp: Date(), direction: direction, canID: canID, rawCAN: nil, payload: payload,
                     detail: DiagnosticResponse.summary(payload), visibility: visibility, frameType: .diagnosticPayload,

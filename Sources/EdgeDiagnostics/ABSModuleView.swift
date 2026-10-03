@@ -143,17 +143,23 @@ struct ABSModuleView: View {
                         Text("Adapter initialization does not reset the ECU or prove its diagnostic session state.").font(.caption)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("Read diagnostic protocol version sends only 22 E6 F3 to 760/768 after preflight. Ford documents this read; support on this ABS is unverified. No session change or fallback is sent.").font(.caption)
+                Text("Read diagnostic protocol version sends only 22 E6 F3 to 760/768 after preflight. The real capture returned version 0C. No session change or fallback is sent.").font(.caption)
                 Toggle("Attempt optional F187 identification after a valid DTC response (unsupported responses stop validation)", isOn: $readIdentification)
+                HStack {
+                    Button("Read diagnostic protocol version") {
+                        model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
+                                                  preflight: validationPreflight, readIdentification: false, operation: .protocolVersion)
+                    }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed || requestHeader.uppercased() != "760" || responseHeader.uppercased() != "768")
+                    Button("Read Ford continuous DTCs (raw)") {
+                        model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
+                                                  preflight: validationPreflight, readIdentification: false, operation: .fordContinuousDTCs)
+                    }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed || requestHeader.uppercased() != "760" || responseHeader.uppercased() != "768")
+                }
                 HStack {
                     Button("Validate Original ABS Module") {
                         model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
                                                   preflight: validationPreflight, readIdentification: readIdentification)
                     }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed)
-                    Button("Read diagnostic protocol version") {
-                        model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
-                                                  preflight: validationPreflight, readIdentification: false, operation: .protocolVersion)
-                    }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed || requestHeader.uppercased() != "760" || responseHeader.uppercased() != "768")
                     Button("Save ABS backup…") { model.exportABSBackup() }.disabled(model.absBackup == nil || model.isWorking)
                     Button("Import original backup…") { model.importABSOriginal() }.disabled(model.isWorking)
                 }
@@ -164,6 +170,11 @@ struct ABSModuleView: View {
                         Text("ABS responded: \(session.absResponded ? "Yes" : "No valid diagnostic response")")
                         Text("Session pair: \(String(format: "%03X / %03X", session.addressing.requestID, session.addressing.responseID)) • \(session.addressing.status.rawValue)")
                         Text("DTC read: \(session.dtcResult.status.rawValue) • \(session.dtcs.count) records. F187: \(session.f187Result.status.rawValue)")
+                        if let result = session.fordContinuousDTCResult {
+                            Text("Ford continuous DTC raw read: \(result.status.rawValue) • \(result.detail)")
+                            Text("Raw payload: \(result.payload?.hex ?? "Unavailable")").textSelection(.enabled)
+                            Text("Decoded UDS DTC list does not represent this raw Ford read; use the export.").font(.caption)
+                        }
                         if let result = session.protocolVersionResult {
                             Text("Protocol version read: \(result.status.rawValue) • \(result.detail)")
                             Text("E6F3 raw payload: \(result.payload?.hex ?? "Unavailable")").textSelection(.enabled)

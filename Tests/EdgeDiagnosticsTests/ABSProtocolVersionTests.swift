@@ -80,7 +80,7 @@ final class ABSProtocolVersionTests: XCTestCase {
             XCTAssertTrue(transport.commands.isEmpty)
         }
         XCTAssertTrue(SafetyPolicy.permits("22E6F3"))
-        for command in ["22E6F2", "22E6F300", "1800FF00", "21FF", "2EE6F300", "1003"] {
+        for command in ["22E6F2", "22E6F300", "1801FF00", "21FF", "2EE6F300", "1003"] {
             XCTAssertFalse(SafetyPolicy.permits(command), command)
         }
     }

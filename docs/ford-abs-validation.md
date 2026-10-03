@@ -70,3 +70,7 @@ The [ELM327 datasheet](https://www.elmelectronics.com/wp-content/uploads/2016/07
 5. Export the ABS validation session as JSON and text regardless of the outcome. Send those exports before choosing any next request. Do not retry an NRC or timeout. The probe records its own `protocolVersionResult`; DTC/F187 results remain notAttempted.
 
 The request purpose is documented in the [research ledger](ford-abs-research.md); target support remains unverified. A returned specification version does not establish module compatibility or permission to transfer configuration.
+
+## Current next test after version 0C: continuous DTCs
+
+Use the same parked KOEO, battery-support and other-tools-closed conditions. Run `swift run`, connect the EX, keep 760/768, and confirm preflight. Leave optional F187 unchecked. Click **Read Ford continuous DTCs (raw)** once, rather than the old UDS validation or protocol-version buttons. This submits only `18 00 FF 00` to ABS after fresh voltage/RPM checks. Export the session as JSON and text regardless of outcome. Send both before another request; do not retry an NRC/timeout. The raw Ford result is separate from the decoded UDS DTC list, so an empty displayed UDS list does not establish zero Ford faults. Configuration extraction and writes are not part of this test.

@@ -16,7 +16,7 @@ The same report contains `ATE0\rOK\r\r`, `ATRV -> 7.7V`, and `010C -> 410C0000` 
 
 ## Hypothesis — not authorized for transmission
 
-A legacy Ford/KWP-style application layer is a research possibility only. Rejection of service 0x19 does not uniquely identify an alternative protocol. No replacement DTC service parameters, module identification mapping, configuration mapping or session sequence is verified on this controller. The branch name does not establish KWP support.
+The original service-19 rejection suggested legacy Ford diagnostics; the later E6F3 capture below now confirms a reported CGDS v2003.0 implementation. Rejection of service 0x19 does not uniquely identify an alternative protocol. No replacement DTC service parameters, module identification mapping, configuration mapping or session sequence is verified on this controller. The branch name does not establish KWP support.
 
 ## Current implementation and next evidence
 
@@ -26,7 +26,7 @@ Raw adapter exchanges, reported receive CAN frames, reconstructed payloads and N
 
 The voltage guard requires a finite, parseable adapter value within 10–16 V. This is the existing application's conservative rejection window, not a sourced Ford module operating specification or a guarantee of adequate battery health. Missing/malformed voltage also blocks before RPM and ABS requests.
 
-Next: perform the single documented protocol-version read below, then obtain Ford/ATE documentation for the exact module, or an existing known read-only scan capture with source, vehicle/module identity, request bytes and responses. Establish request purpose, default-session availability and response layout before implementing one bounded change. Do not repeat the rejected DTC request merely to rediscover the address pair.
+Next: perform the single documented protocol-version read below, then use the continuous-DTC read below and obtain Ford/ATE documentation for the exact module, or an existing known read-only scan capture with source, vehicle/module identity, request bytes and responses. Establish request purpose, default-session availability and response layout before implementing one bounded change. Do not repeat the rejected DTC request merely to rediscover the address pair.
 
 All As-Built/configuration/VIN writes, security access, session control, ECU reset, DTC clearing, memory access, flashing, pump/solenoid routines, bleed and PMI remain disabled. No vehicle request was transmitted during this development.
 
@@ -41,3 +41,13 @@ A [Ford-authored CAN Generic Diagnostic Specification v2003.0, mirrored PDF](htt
 The dedicated button sends exactly one ABS request to the already observed 760/768 pair after existing adapter identity/voltage/RPM preflight. Expected positive payload: `62 E6 F3 <one version byte>`. Negative replies, wrong IDs, malformed payloads and timeouts remain exported and stop without retries, session control, identification or DTC fallback. Unknown version values remain raw; no follow-up service is inferred. This is a diagnostic-version read, not module identification or configuration extraction.
 
 User now suspects the installed BE5C-2C219-AA belongs to a 3.5L application. Record as an unconfirmed compatibility concern. Even an exact protocol-version reply cannot establish engine/drivetrain fitment. Before any restoration, compare Ford VIN-based application information and factory configuration with the installed and replacement identities; do not assume the current module's configuration is correct for this vehicle.
+
+## Real protocol-version capture — October 3
+
+Session 60DF93E1-295A-4A2F-9FAA-972A1F730FE1 at 13:06 UTC reports TX `22 E6 F3`, RX `768 04 62 E6 F3 0C`, reconstructed `62 E6 F3 0C`. This establishes the controller reports Ford CAN diagnostic specification v2003.0. Adapter voltage was 11.3 V, RPM zero. DTC/F187/configuration reads were not attempted. All adapter setup/restoration commands were acknowledged; no timeout/NRC occurred. Older trace text incorrectly called E6F3 unimplemented; its successful structured result and raw payload are authoritative. The trace label is now corrected.
+
+## Next bounded continuous-DTC read
+
+Ford CGDS v2003.0 §2.2.2.7.8 / Table 9 documents service 18, status 00 for identified continuous DTCs, group FF00 for all groups. [SSF 14230-3 Issue 2, §8.2.2](https://netcult.ch/elmue/HUD%20ECU%20Hacker/ISO%2014230-3.pdf), a Swedish KWP implementation document, supplies the byte order and response structure: service/status/group-high/group-low; response 58/count/three-byte DTC-status records. Ford's status values override the Swedish request values. Ford caps counts at FF when more than 255 records are returned. This supports `18 00 FF 00` and strict record framing; successful DTC reads on this controller remain unverified until the next capture.
+
+The dedicated raw read keeps two-byte DTC/status records intact, never passes them through the UDS four-byte decoder, and does not infer Ford status-bit meaning. Malformed lengths/counts, mismatched services/IDs and incomplete ISO-TP fail closed. The exact request is allowlisted; other status/group variants remain blocked. No session change, retry, sweep, identification or configuration request is appended.
