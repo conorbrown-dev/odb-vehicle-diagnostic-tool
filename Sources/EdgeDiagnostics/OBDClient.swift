@@ -277,13 +277,19 @@ final class OBDClient: @unchecked Sendable {
         for command in ["ATCRA", "STCFCPC", "ATAR", "ATH0", "ATS0", "STCSEGR 0", "ATSH7DF"] { try absAdapterCommand(command) }
     }
 
+    private func storeABSReadResult(_ result: ABSReadResult, request: [UInt8]) {
+        if request == [0x22, 0xE6, 0xF3] { absSession!.protocolVersionResult = result }
+        else if request == [0x22, 0xF1, 0x87] { absSession!.f187Result = result }
+        else { absSession!.dtcResult = result }
+    }
+
     private func absRequest(_ bytes: [UInt8], profile: FordModuleAddressing) throws -> [UInt8] {
-        guard bytes == [0x19, 0x02, 0xFF] || bytes == [0x22, 0xF1, 0x87], absSession?.preflight.readOnly == true else {
+        guard bytes == [0x19, 0x02, 0xFF] || bytes == [0x22, 0xF1, 0x87] || bytes == [0x22, 0xE6, 0xF3], absSession?.preflight.readOnly == true else {
             throw OBDClientError.unsafeCommand(bytes.hex)
         }
-        let identification = bytes.first == 0x22
+        let identification = bytes == [0x22, 0xF1, 0x87]
         let pending = ABSReadResult(status: .failed, detail: "Request started; no valid response yet")
-        if identification { absSession!.f187Result = pending } else { absSession!.dtcResult = pending }
+        storeABSReadResult(pending, request: bytes)
         absTrace.append(.diagnostic(direction: "TX", canID: profile.requestID, payload: bytes, visibility: .logical))
         for frame in try ISOTP.frames(payload: bytes, id: profile.requestID) {
             absTrace.append(.init(timestamp: Date(), direction: "TX", canID: frame.id, rawCAN: frame.bytes, payload: nil,
@@ -336,14 +342,14 @@ final class OBDClient: @unchecked Sendable {
                                       detail: "Address pair observed in this session from a valid negative diagnostic response. Service support and programming compatibility are separate questions.",
                                       visibility: .logical, frameType: .validation))
                 result.status = .negative; result.nrc = nrc
-                if identification { absSession!.f187Result = result } else { absSession!.dtcResult = result }
+                storeABSReadResult(result, request: bytes)
                 throw ABSValidationFailure(outcome: .negativeResponse, message: error.localizedDescription)
             }
-            if identification { absSession!.f187Result = result } else { absSession!.dtcResult = result }
+            storeABSReadResult(result, request: bytes)
             throw ABSValidationFailure(outcome: .trafficWithoutResponse, message: "Unknown/unexpected diagnostic response retained: \(payload.hex). \(error.localizedDescription)")
         }
         result.status = .positive
-        if identification { absSession!.f187Result = result } else { absSession!.dtcResult = result }
+        storeABSReadResult(result, request: bytes)
         absSession!.addressing.markObserved(at: Date())
         absTrace.append(.init(timestamp: Date(), direction: "RX", canID: profile.responseID, rawCAN: nil, payload: nil,
                               detail: "Address pair observed in this session after a matching valid positive diagnostic response. Vehicle/module applicability still requires user context; no programming compatibility implied.", visibility: .logical, frameType: .validation))
@@ -411,11 +417,18 @@ final class OBDClient: @unchecked Sendable {
     }
 
     func validateOriginalABS(addressing: FordModuleAddressing = .fusionCandidate, preflight: ABSValidationPreflight,
-                             vehicleVIN: String? = nil, adapterInformation: String = "Not captured", readIdentification: Bool = false) -> ABSValidationSession {
+                             vehicleVIN: String? = nil, adapterInformation: String = "Not captured", readIdentification: Bool = false,
+                             operation: ABSReadOperation = .dtcs) -> ABSValidationSession {
         operationLock.lock(); defer { operationLock.unlock() }
         beginABS(addressing: addressing, preflight: preflight, vehicleVIN: vehicleVIN, adapterInformation: adapterInformation)
         do {
             try addressing.validate()
+            if operation == .protocolVersion {
+                guard addressing.requestID == 0x760, addressing.responseID == 0x768, !readIdentification else {
+                    throw ABSValidationFailure(outcome: .preflightBlocked, message: "Protocol version probe requires the observed 760/768 pair and no optional identification read.")
+                }
+                absSession!.protocolVersionResult = ABSReadResult()
+            }
             guard preflight.blockers.isEmpty else { throw ABSValidationFailure(outcome: .preflightBlocked, message: preflight.blockers.joined(separator: "; ")) }
         } catch {
             absSession!.outcome = .preflightBlocked; absSession!.detail = error.localizedDescription
@@ -456,7 +469,19 @@ final class OBDClient: @unchecked Sendable {
             }
             absTrace.append(.init(timestamp: Date(), direction: "TX", canID: nil, rawCAN: nil, payload: nil,
                                   detail: "Read-only preflight passed. Engine OFF and absence of external write sessions are user confirmations; ATZ resets only the adapter, not an ECU diagnostic session. No session-control commands are sent.", visibility: .logical, frameType: .validation))
-            try performABSRead(profile: addressing, readIdentification: readIdentification)
+            if operation == .protocolVersion {
+                try configureABS(addressing)
+                let payload = try absRequest([0x22, 0xE6, 0xF3], profile: addressing)
+                let version = payload[3]
+                let known: [UInt8: String] = [0x0A: "Ford CAN diagnostic specification v2001.0", 0x0B: "Ford CAN diagnostic specification v2001.1", 0x0C: "Ford CAN diagnostic specification v2003.0"]
+                let detail = known[version] ?? String(format: "Unknown diagnostic specification version 0x%02X; retain raw value without inferring services", version)
+                absSession!.protocolVersionResult!.detail = detail
+                try restoreAfterABS()
+                absSession!.outcome = .responded
+                absSession!.detail = detail + ". No DTC, identification or configuration read was attempted."
+            } else {
+                try performABSRead(profile: addressing, readIdentification: readIdentification)
+            }
         } catch { failABS(error) }
         return finishABS()
     }

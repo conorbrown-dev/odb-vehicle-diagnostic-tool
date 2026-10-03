@@ -19,6 +19,11 @@ struct ABSValidationPreflight: Codable, Equatable {
     }
 }
 
+enum ABSReadOperation: String {
+    case dtcs
+    case protocolVersion
+}
+
 enum ABSValidationOutcome: String, Codable {
     case responded = "ABS responded"
     case noResponse = "ABS did not respond"
@@ -61,10 +66,11 @@ struct ABSValidationSession: Codable, Equatable, Identifiable {
     var dtcs: [DiagnosticCode] = []
     var dtcResult = ABSReadResult()
     var f187Result = ABSReadResult()
+    var protocolVersionResult: ABSReadResult?
     var transcript: [ABSTrace] = []
     var adapterExchanges: [DiagnosticTranscriptEntry] = []
     var requiresReconnect = false
-    var absResponded: Bool { addressing.status == .observed && [.positive, .negative].contains(dtcResult.status) }
+    var absResponded: Bool { addressing.status == .observed && ([.positive, .negative].contains(dtcResult.status) || protocolVersionResult.map { [.positive, .negative].contains($0.status) } == true) }
 
     static func jsonEncoder() -> JSONEncoder {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -97,6 +103,7 @@ struct ABSValidationSession: Codable, Equatable, Identifiable {
         Part number (F187): \(module.partNumber ?? "Unavailable")
         ABS VIN / hardware / software / strategy: unavailable (not requested)
         DTC result: \(dtcResult.status.rawValue) \(dtcResult.detail) raw=\(dtcResult.payload?.hex ?? "Unavailable")
+        Protocol version E6F3 result: \(protocolVersionResult?.status.rawValue ?? "notAttempted") \(protocolVersionResult?.detail ?? "Not requested") raw=\(protocolVersionResult?.payload?.hex ?? "Unavailable")
         F187 result: \(f187Result.status.rawValue) \(f187Result.detail) raw=\(f187Result.payload?.hex ?? "Unavailable") NRC=\(f187Result.nrc.map { String(format: "%02X", $0) } ?? "—")
         Reconnect required: \(requiresReconnect)
         READ ONLY: \(preflight.readOnly). Ignition ON confirmed: \(preflight.ignitionOn). Engine OFF confirmed: \(preflight.engineOff).

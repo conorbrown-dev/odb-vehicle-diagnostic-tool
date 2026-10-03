@@ -60,3 +60,13 @@ The [ELM327 datasheet](https://www.elmelectronics.com/wp-content/uploads/2016/07
 ## Development validation
 
 `ABSValidationTests` uses synthetic mock transports only. It covers logical TX/physical RX, First/Consecutive/FC classification, multi-frame reconstruction, response identity, Candidate-to-Observed promotion, unknown/NRC/timeout/partial-frame preservation, fail-stop behavior, custom profiles, fresh RPM/preflight blocking, adapter identity, export completeness and legacy backup decoding. No test opens a serial device or sends a hardware command. All write-capable services and routine boundaries remain blocked.
+
+## Current next test: protocol version only
+
+1. Leave the original module installed. Park, ignition ON / engine OFF; use the battery support already in place. Close other diagnostic tools.
+2. From branch `abs/kwp-validation`, run `swift run`. Select the EX USB serial device and connect. The existing connection reads generic powertrain identification; it sends no ABS request.
+3. In ABS Module keep request `760`, response `768`, and enter the prior capture reference as the profile source. Confirm the KOEO / other-tools-closed preflight boxes. Leave optional F187 identification unchecked.
+4. Click **Read diagnostic protocol version** once. Do not click Validate Original ABS Module. The probe checks fresh voltage/RPM and sends only `22 E6 F3` to ABS. It makes no DTC, identification, configuration or write request and no session change.
+5. Export the ABS validation session as JSON and text regardless of the outcome. Send those exports before choosing any next request. Do not retry an NRC or timeout. The probe records its own `protocolVersionResult`; DTC/F187 results remain notAttempted.
+
+The request purpose is documented in the [research ledger](ford-abs-research.md); target support remains unverified. A returned specification version does not establish module compatibility or permission to transfer configuration.

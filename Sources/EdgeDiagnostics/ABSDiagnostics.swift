@@ -89,6 +89,9 @@ enum DiagnosticResponse {
         if service == 0x22 {
             guard payload.count >= 4, payload.prefix(3).dropFirst() == request.dropFirst() else { throw ABSError.invalid("DID response mismatch") }
         }
+        if request == [0x22, 0xE6, 0xF3] {
+            guard payload.count == 4 else { throw ABSError.invalid("Malformed Ford diagnostic specification version response") }
+        }
         if service == 0x19 {
             guard payload.count >= 3, payload[1] == 0x02, (payload.count - 3) % 4 == 0 else { throw ABSError.invalid("Malformed DTC response") }
         }
@@ -113,7 +116,7 @@ struct FordModuleAddressing: Codable, Equatable {
     var status: ABSAddressingStatus = .candidate
     var observedAt: Date?
     static let fusionCandidate = Self()
-    var protocolName: String { "HS-CAN / ISO 15765-2 normal 11-bit / UDS" }
+    var protocolName: String { "HS-CAN / ISO 15765-2 normal 11-bit / application protocol unverified" }
     func validate() throws {
         guard requestID <= 0x7FF, responseID <= 0x7FF, responseID != requestID,
               network == .highSpeed, addressingBits == 11,

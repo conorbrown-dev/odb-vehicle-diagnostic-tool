@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 extension AppModel {
     func validateOriginalABS(requestHeader: String, responseHeader: String, evidence: String,
-                             preflight: ABSValidationPreflight, readIdentification: Bool) {
+                             preflight: ABSValidationPreflight, readIdentification: Bool, operation: ABSReadOperation = .dtcs) {
         guard let client, isConnected, !isWorking else { return }
         guard requestHeader.count == 3, responseHeader.count == 3,
               let requestID = UInt16(requestHeader, radix: 16), let responseID = UInt16(responseHeader, radix: 16) else {
@@ -26,7 +26,7 @@ extension AppModel {
             defer { isWorking = false }
             let session = await Task.detached {
                 client.validateOriginalABS(addressing: addressing, preflight: validatedChecks, vehicleVIN: vin,
-                                           adapterInformation: adapter, readIdentification: readIdentification)
+                                           adapterInformation: adapter, readIdentification: readIdentification, operation: operation)
             }.value
             absValidationSession = session
             absVoltage = session.adapterVoltage
@@ -143,12 +143,17 @@ struct ABSModuleView: View {
                         Text("Adapter initialization does not reset the ECU or prove its diagnostic session state.").font(.caption)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
+                Text("Read diagnostic protocol version sends only 22 E6 F3 to 760/768 after preflight. Ford documents this read; support on this ABS is unverified. No session change or fallback is sent.").font(.caption)
                 Toggle("Attempt optional F187 identification after a valid DTC response (unsupported responses stop validation)", isOn: $readIdentification)
                 HStack {
                     Button("Validate Original ABS Module") {
                         model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
                                                   preflight: validationPreflight, readIdentification: readIdentification)
                     }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed)
+                    Button("Read diagnostic protocol version") {
+                        model.validateOriginalABS(requestHeader: requestHeader.uppercased(), responseHeader: responseHeader.uppercased(), evidence: evidence,
+                                                  preflight: validationPreflight, readIdentification: false, operation: .protocolVersion)
+                    }.disabled(!model.isConnected || model.isWorking || !validationPreflight.ignitionOn || !validationPreflight.engineOff || !validationPreflight.noWriteSessionConfirmed || requestHeader.uppercased() != "760" || responseHeader.uppercased() != "768")
                     Button("Save ABS backup…") { model.exportABSBackup() }.disabled(model.absBackup == nil || model.isWorking)
                     Button("Import original backup…") { model.importABSOriginal() }.disabled(model.isWorking)
                 }
@@ -159,6 +164,10 @@ struct ABSModuleView: View {
                         Text("ABS responded: \(session.absResponded ? "Yes" : "No valid diagnostic response")")
                         Text("Session pair: \(String(format: "%03X / %03X", session.addressing.requestID, session.addressing.responseID)) • \(session.addressing.status.rawValue)")
                         Text("DTC read: \(session.dtcResult.status.rawValue) • \(session.dtcs.count) records. F187: \(session.f187Result.status.rawValue)")
+                        if let result = session.protocolVersionResult {
+                            Text("Protocol version read: \(result.status.rawValue) • \(result.detail)")
+                            Text("E6F3 raw payload: \(result.payload?.hex ?? "Unavailable")").textSelection(.enabled)
+                        }
                         Text("F187 raw payload: \(session.f187Result.payload?.hex ?? "Unavailable / not attempted")")
                         Text("Fresh generic RPM: \(session.engineRPM.map { String(format: "%.0f", $0) } ?? "Unavailable; manual engine-OFF confirmation used")")
                         if session.requiresReconnect { Text("Reconnect before another validation attempt.").foregroundStyle(.orange) }
