@@ -89,3 +89,13 @@ swift run EdgeDiagnostics --cli abs-vin-start \
 The CLI creates a unique capture directory before opening the adapter, records the invocation/confirmation provenance, and exports JSON and text even for negative responses, malformed replies or blocked preflight. Exit 0 means a positive read, 1 a failed/non-positive read or export failure, and 2 invalid arguments or an unavailable capture destination. A negative response still preserves observed addressing in the session. `pending.txt` remains if an attempt is interrupted or export does not complete. Captures under `./captures` are Git-ignored and remain local.
 
 For an adapter-only check, use `--cli voltage --port /dev/cu.YOUR_OBDLINK_DEVICE --output ./captures`; it sends only ATRV and closes the serial port. `help` and `ports` never open the adapter. GUI launch remains `swift run EdgeDiagnostics` without arguments.
+
+### Factory ABS reference (offline)
+
+```sh
+swift run EdgeDiagnostics --cli factory-abs \
+  --input /absolute/path/vehicle.ab --vehicle-vin YOUR_VERIFIED_VIN \
+  --output ./captures
+```
+
+This command never creates a serial transport. It accepts the observed Ford XML structure, checks the supplied VIN/check digit against the embedded VIN, rejects malformed/duplicate ABS blocks and missing PCM/BCE source data, and requires a single factory node 760. It preserves original CODE groups and source warnings, saves an unchanged original plus JSON/text references in a unique folder, and records a SHA-256 hash. Factory metadata remains raw identifier tags; checksums, module compatibility and programming readiness are not asserted. DTD/entity documents are rejected. Factory references remain separate from ECU-read backups. No vehicle write functionality is added.

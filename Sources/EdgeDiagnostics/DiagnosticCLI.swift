@@ -18,8 +18,9 @@ enum DiagnosticsEntryPoint {
 }
 
 struct DiagnosticCLIOptions {
-    enum Command: String { case help, ports, voltage, absVersion = "abs-version", absDTCs = "abs-dtcs", absVINStart = "abs-vin-start" }
+    enum Command: String { case factoryABS = "factory-abs", help, ports, voltage, absVersion = "abs-version", absDTCs = "abs-dtcs", absVINStart = "abs-vin-start" }
     let command: Command
+    var input: String?
     var port: String?
     var output: String?
     var vehicleVIN: String?
@@ -38,10 +39,11 @@ struct DiagnosticCLIOptions {
             guard seen.insert(flag).inserted else { throw ABSError.invalid("Duplicate option: " + flag) }
             if Self.requiredConfirmations.contains(flag) {
                 confirmations.insert(flag)
-            } else if ["--port", "--output", "--vehicle-vin"].contains(flag) {
+            } else if ["--input", "--port", "--output", "--vehicle-vin"].contains(flag) {
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("--") else { throw ABSError.invalid("Missing value for " + flag) }
                 switch flag {
+                case "--input": input = arguments[index]
                 case "--port": port = arguments[index]
                 case "--output": output = arguments[index]
                 default: vehicleVIN = arguments[index]
@@ -53,6 +55,14 @@ struct DiagnosticCLIOptions {
             guard seen.isEmpty else { throw ABSError.invalid("This command takes no options") }
             return
         }
+        if command == .factoryABS {
+            guard let input, !input.isEmpty, let output, !output.isEmpty, let vehicleVIN,
+                  FactoryABSReference.validVIN(vehicleVIN), port == nil, confirmations.isEmpty else {
+                throw ABSError.invalid("factory-abs requires --input FILE --output DIRECTORY --vehicle-vin VIN; no serial port or live confirmations")
+            }
+            return
+        }
+        guard input == nil else { throw ABSError.invalid("--input is only for factory-abs") }
         guard let port, port.hasPrefix("/dev/cu."), !port.dropFirst(8).isEmpty,
               !port.dropFirst(8).contains("/"), !port.contains("..") else {
             throw ABSError.invalid("Supply an explicit macOS /dev/cu.* serial device with --port; no automatic selection")
@@ -85,7 +95,8 @@ struct DiagnosticCLIOptions {
 enum DiagnosticCLI {
     static let help = """
     Usage: swift run EdgeDiagnostics --cli <command> [options]
-    Commands: help, ports, voltage, abs-version, abs-dtcs, abs-vin-start
+    Commands: help, ports, voltage, abs-version, abs-dtcs, abs-vin-start, factory-abs
+    Offline: factory-abs --input FILE.ab --vehicle-vin VIN --output DIRECTORY
     Live reads require: --port /dev/cu.DEVICE --output DIRECTORY
     ABS reads also require fresh human confirmations for each invocation:
       --ignition-on --engine-off --parked --original-abs-installed --other-tools-closed --read-only
@@ -110,6 +121,20 @@ enum DiagnosticCLI {
         if options.command == .help { emit(help); return 0 }
         if options.command == .ports { emit(ports().joined(separator: "\n")); return 0 }
 
+        if options.command == .factoryABS {
+            do {
+                let source = URL(fileURLWithPath: options.input!)
+                let data = try Data(contentsOf: source)
+                let reference = try FactoryABSReference.parse(data, expectedVIN: options.vehicleVIN!, sourcePath: source.path)
+                let destination = URL(fileURLWithPath: options.output!, isDirectory: true).appendingPathComponent("factory-" + UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+                try data.write(to: destination.appendingPathComponent("original.ab"), options: .atomic)
+                try ABSValidationSession.jsonEncoder().encode(reference).write(to: destination.appendingPathComponent("factory-ABS-reference.json"), options: .atomic)
+                try Data(reference.text.utf8).write(to: destination.appendingPathComponent("factory-ABS-reference.txt"), options: .atomic)
+                emit(reference.text + "Saved: " + destination.path)
+                return 0
+            } catch { emit("Factory import failed: " + error.localizedDescription); return 2 }
+        }
         // Establish a writable destination before opening the adapter or sending anything.
         let directory = URL(fileURLWithPath: options.output!, isDirectory: true)
             .appendingPathComponent("capture-" + UUID().uuidString, isDirectory: true)
