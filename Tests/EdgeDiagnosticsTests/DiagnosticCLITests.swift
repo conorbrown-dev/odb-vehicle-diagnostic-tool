@@ -25,11 +25,11 @@ final class DiagnosticCLITests: XCTestCase {
     func testRejectsArbitraryCommandsOptionsPortsAndMalformedArguments() {
         let folder = destination()
         let base = arguments("abs-vin-start", output: folder)
-        let invalid = [[], ["raw", "22E301"], ["help", "--ignition-on"], ["ports", "--port", "/dev/cu.x"],
-                       base + ["--request", "22E301"], base + ["--ignition-on"], base + ["--vehicle-vin"],
-                       base + ["--vehicle-vin", "INVALID"], base + ["--clear-dtcs"],
-                       ["voltage", "--port", "/tmp/file", "--output", folder.path],
-                       ["voltage", "--port", "/dev/cu.x/other", "--output", folder.path]]
+        var invalid: [[String]] = [[], ["raw", "22E301"], ["help", "--ignition-on"], ["ports", "--port", "/dev/cu.x"]]
+        let forbiddenOptions: [[String]] = [["--request", "22E301"], ["--ignition-on"], ["--vehicle-vin"], ["--vehicle-vin", "INVALID"], ["--clear-dtcs"]]
+        for options in forbiddenOptions { invalid.append(base + options) }
+        invalid.append(["voltage", "--port", "/tmp/file", "--output", folder.path])
+        invalid.append(["voltage", "--port", "/dev/cu.x/other", "--output", folder.path])
         for args in invalid {
             XCTAssertThrowsError(try DiagnosticCLIOptions(arguments: args), args.joined(separator: " "))
         }
